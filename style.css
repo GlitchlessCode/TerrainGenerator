@@ -1,0 +1,90 @@
+body {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#cnv {
+  position: fixed;
+  background-color: aliceblue;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+#grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+}
+
+#grid input,
+#grid p,
+#grid button {
+  margin: 0.5rem 0.3rem;
+}
+
+#grid p {
+  text-align: right;
+}
+
+button {
+  --trim: #77ef95;
+  --back: #27853f;
+  background-color: var(--back);
+  border: var(--trim) 0.1rem solid;
+  border-radius: 0.2rem;
+  padding: 0.3rem;
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--trim);
+  transition: 100ms;
+  pointer-events: all;
+}
+
+button:hover {
+  background-color: var(--trim);
+  color: var(--back);
+  border-color: var(--back);
+}
+
+button:active {
+  transition: none;
+  background-color: #e8f7ec;
+  transform: scale(0.96);
+}
+
+button[name="reset"] {
+  --back: #852727;
+  --trim: #ef7777;
+
+  margin-bottom: 0.5rem;
+
+  width: calc(100% - 1.75rem);
+}
+
+button:disabled,
+input:disabled {
+  opacity: 50%;
+  pointer-events: none;
+}
+
+input {
+  pointer-events: all;
+  text-align: center;
+  color: #c5d3df;
+  height: 1rem;
+  background-color: #8888ff44;
+  padding: 0.3rem;
+  border: none;
+  border-bottom: #000033 0.1rem solid;
+  border-radius: 0.2rem;
+  transition: border 100ms;
+}
+
+input:focus {
+  border: none;
+  border-bottom: #c5d3df 0.1rem solid;
+  outline: none;
+}

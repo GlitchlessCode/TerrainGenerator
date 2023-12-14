@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wave Function Collapse</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./web-components/registry.js"></script>
+    <script type="module" src="./main.js" defer></script>
+  </head>
+  <body>
+    <canvas id="cnv"></canvas>
+    <drag-box>
+      <h2 slot="header">Settings</h2>
+      <div id="grid">
+        <p>Grid Width:</p>
+        <input type="number" value="10" name="width" />
+        <p>Grid Height:</p>
+        <input type="number" value="10" name="height" />
+        <button name="step">Step Once</button>
+        <button name="generate">Generate</button>
+      </div>
+      <button name="reset">Reset</button>
+    </drag-box>
+  </body>
+</html>
