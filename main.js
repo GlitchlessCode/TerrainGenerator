@@ -12,6 +12,8 @@ class State {
   static beach = Symbol();
   static grass = Symbol();
   static trees = Symbol();
+  static mountain = Symbol();
+  static snow = Symbol();
 
   static getAll() {
     return Array.from(
@@ -44,6 +46,16 @@ class State {
           primary: "#13a02d",
           secondary: "#014a10",
         };
+      case State.mountain:
+        return {
+          primary: "#888888",
+          secondary: "#444444",
+        };
+      case State.snow:
+        return {
+          primary: "#FFFFFF",
+          secondary: "#CCCCCC",
+        };
       default:
         return {
           primary: "#ef7777",
@@ -65,10 +77,30 @@ class State {
 Object.freeze(State);
 
 class Constraints {
-  static water = Object.freeze([State.water, State.beach]);
-  static beach = Object.freeze([State.water, State.beach, State.grass]);
-  static grass = Object.freeze([State.beach, State.grass, State.trees]);
-  static trees = Object.freeze([State.grass, State.trees]);
+  static water = Object.freeze({
+    states: [State.water, State.beach],
+    weights: [4, 1],
+  });
+  static beach = Object.freeze({
+    states: [State.water, State.beach, State.grass],
+    weights: [2, 1, 2],
+  });
+  static grass = Object.freeze({
+    states: [State.mountain, State.beach, State.grass, State.trees],
+    weights: [1, 1, 3, 2],
+  });
+  static trees = Object.freeze({
+    states: [State.mountain, State.grass, State.trees],
+    weights: [1, 1, 2],
+  });
+  static mountain = Object.freeze({
+    states: [State.snow, State.trees, State.grass, State.mountain],
+    weights: [2, 2, 1, 2],
+  });
+  static snow = Object.freeze({
+    states: [State.snow, State.mountain],
+    weights: [1, 3],
+  });
 }
 Object.freeze(Constraints);
 
@@ -106,7 +138,8 @@ class Square {
 
       context.fillStyle = colours.secondary;
       const bigX = this.pos.x + ((i + 0.05) % squareCount) / squareCount;
-      const bigY = this.pos.y + (Math.floor(i / squareCount) + 0.05) / squareCount;
+      const bigY =
+        this.pos.y + (Math.floor(i / squareCount) + 0.05) / squareCount;
       context.fillRect(
         ...cam.reposition(bigX, bigY),
         ...cam.rescale(size * 0.9, size * 0.9)
@@ -114,7 +147,8 @@ class Square {
 
       context.fillStyle = colours.primary;
       const smallX = this.pos.x + ((i + 0.15) % squareCount) / squareCount;
-      const smallY = this.pos.y + (Math.floor(i / squareCount) + 0.15) / squareCount;
+      const smallY =
+        this.pos.y + (Math.floor(i / squareCount) + 0.15) / squareCount;
       context.fillRect(
         ...cam.reposition(smallX, smallY),
         ...cam.rescale(size * 0.7, size * 0.7)
@@ -123,7 +157,10 @@ class Square {
 
     context.strokeStyle = "#7a7a20";
     context.lineWidth = cam.scale;
-    context.strokeRect(...cam.reposition(this.pos.x, this.pos.y), ...cam.rescale(1, 1));
+    context.strokeRect(
+      ...cam.reposition(this.pos.x, this.pos.y),
+      ...cam.rescale(1, 1)
+    );
   }
 
   collapse() {
@@ -153,7 +190,10 @@ class CollapedSquare {
     const colours = State.getColours(this.state);
 
     context.fillStyle = colours.secondary;
-    context.fillRect(...cam.reposition(this.pos.x, this.pos.y), ...cam.rescale(1, 1));
+    context.fillRect(
+      ...cam.reposition(this.pos.x, this.pos.y),
+      ...cam.rescale(1, 1)
+    );
 
     context.fillStyle = colours.primary;
     context.fillRect(
@@ -263,6 +303,20 @@ class Grid {
     this.grid[x][y] = val;
   }
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {(Square|CollapedSquare|undefined)[]}
+   */
+  getNeighbours(x, y) {
+    const result = [];
+    result.push(this.get(x + 1, y));
+    result.push(this.get(x - 1, y));
+    result.push(this.get(x, y + 1));
+    result.push(this.get(x, y - 1));
+    return result;
+  }
+
   #resize() {
     this.grid = Array.from({ length: this.width }, (_, x) =>
       Array.from({ length: this.height }, (_, y) => new Square(x, y))
@@ -323,7 +377,10 @@ class Camera {
     const scaled = [];
 
     scaled.push(
-      this.#canvas.width / 2 - this.x * scale - 0.5 * scale * this.#grid.width + x * scale
+      this.#canvas.width / 2 -
+        this.x * scale -
+        0.5 * scale * this.#grid.width +
+        x * scale
     );
     scaled.push(
       this.#canvas.height / 2 -
@@ -344,11 +401,17 @@ class Camera {
     const unscaled = [];
 
     unscaled.push(
-      (x - this.#canvas.width / 2 + this.x * scale + 0.5 * scale * this.#grid.width) /
+      (x -
+        this.#canvas.width / 2 +
+        this.x * scale +
+        0.5 * scale * this.#grid.width) /
         scale
     );
     unscaled.push(
-      (y - this.#canvas.height / 2 + this.y * scale + 0.5 * scale * this.#grid.height) /
+      (y -
+        this.#canvas.height / 2 +
+        this.y * scale +
+        0.5 * scale * this.#grid.height) /
         scale
     );
 
@@ -425,12 +488,43 @@ class WaveFunctionCollapse {
 
     // Collapse random square from set
     const randPos =
-      Array.from(lowestEntropySet)[Math.floor(Math.random() * lowestEntropySet.size)].pos;
-    const collapsedSquare = this.#grid.get(randPos.x, randPos.y).collapse();
+      Array.from(lowestEntropySet)[
+        Math.floor(Math.random() * lowestEntropySet.size)
+      ].pos;
+    const weights = this.#grid
+      .getNeighbours(randPos.x, randPos.y)
+      .filter((sqr) => sqr instanceof CollapedSquare)
+      .map((sqr) => {
+        /** @type {Object<symbol, number>} */
+        const weightObj = {};
+        const constraints = Constraints[State.getName(sqr.state)];
+        for (let i = 0; i < constraints.states.length; i++) {
+          weightObj[constraints.states[i]] = constraints.weights[i];
+        }
+        return weightObj;
+      })
+      .reduce((prev, curr) => {
+        for (const [key, value] of Object.getOwnPropertySymbols(curr).map(
+          (s) => [s, curr[s]]
+        )) {
+          if (Object.hasOwn(prev, key)) {
+            prev[key] += value;
+          } else {
+            prev[key] = value;
+          }
+        }
+        return prev;
+      }, {});
+    console.log(weights);
+    const collapsedSquare = this.#grid
+      .get(randPos.x, randPos.y)
+      .collapse(weights);
     this.#grid.set(randPos.x, randPos.y, collapsedSquare);
 
     // Set filters
-    const filter = new Filter(Constraints[State.getName(collapsedSquare.state)]);
+    const filter = new Filter(
+      Constraints[State.getName(collapsedSquare.state)].states
+    );
     /** @type {Object<string, Filter[]>} */
     const filterList = new Object();
     this.#setFilters(randPos.x + 1, randPos.y, filter, filterList);
@@ -477,12 +571,13 @@ class WaveFunctionCollapse {
     });
 
     const posString = JSON.stringify(square.pos);
-    if (!Object.hasOwn(filterList, posString)) filterList[posString] = new Array();
+    if (!Object.hasOwn(filterList, posString))
+      filterList[posString] = new Array();
     filterList[posString].push(new Filter(Array.from(stateSet)));
 
     const filterSet = new Set();
     for (const state of Array.from(stateSet)) {
-      filterSet.add(Constraints[State.getName(state)]);
+      filterSet.add(Constraints[State.getName(state)].states);
     }
 
     const newFilter = Filter.or_filter(filterSet);
@@ -569,7 +664,9 @@ class Filter {
   }
 
   static #allConstraints = Object.freeze(
-    Array.from(Constraints.toString().match(/static [a-zA-Z]+ = Object\.freeze\(.*$/gm))
+    Array.from(
+      Constraints.toString().match(/static [a-zA-Z]+ = Object\.freeze\(.*$/gm)
+    )
   );
 
   #constraints;
@@ -711,7 +808,11 @@ cnv.addEventListener("wheel", handleScroll);
  * @param {WheelEvent} event
  */
 function handleScroll({ deltaY }) {
-  camera.scale = clamp(camera.scale * 1.2 ** -Math.sign(deltaY), 1.2 ** -10, 1.2 ** 10);
+  camera.scale = clamp(
+    camera.scale * 1.2 ** -Math.sign(deltaY),
+    1.2 ** -10,
+    1.2 ** 10
+  );
 }
 
 cnv.addEventListener("mousedown", handleCnvClick);
@@ -720,7 +821,14 @@ cnv.addEventListener("mousedown", handleCnvClick);
  */
 function handleCnvClick({ button, clientX, clientY }) {
   if (button == 1 || button == 2) {
-    const vals = [cnv.width, cnv.height, camera.x, camera.y, grid.width, grid.height];
+    const vals = [
+      cnv.width,
+      cnv.height,
+      camera.x,
+      camera.y,
+      grid.width,
+      grid.height,
+    ];
     const offset = unposition(
       clientX * window.devicePixelRatio,
       clientY * window.devicePixelRatio,
@@ -772,12 +880,25 @@ function handleCnvClick({ button, clientX, clientY }) {
    * @param {number} gridHeight
    * @param {number} gridWidth
    */
-  function unposition(x, y, cnvWidth, cnvHeight, camX, camY, gridWidth, gridHeight) {
+  function unposition(
+    x,
+    y,
+    cnvWidth,
+    cnvHeight,
+    camX,
+    camY,
+    gridWidth,
+    gridHeight
+  ) {
     const scale = camera.scale * 64;
     const unscaled = [];
 
-    unscaled.push((x - cnvWidth / 2 + camX * scale + 0.5 * scale * gridWidth) / scale);
-    unscaled.push((y - cnvHeight / 2 + camY * scale + 0.5 * scale * gridHeight) / scale);
+    unscaled.push(
+      (x - cnvWidth / 2 + camX * scale + 0.5 * scale * gridWidth) / scale
+    );
+    unscaled.push(
+      (y - cnvHeight / 2 + camY * scale + 0.5 * scale * gridHeight) / scale
+    );
 
     return unscaled;
   }
