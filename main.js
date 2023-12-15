@@ -8,6 +8,7 @@ class ScalingError extends Error {
 }
 
 class State {
+  static deep = Symbol();
   static water = Symbol();
   static beach = Symbol();
   static grass = Symbol();
@@ -56,6 +57,11 @@ class State {
           primary: "#FFFFFF",
           secondary: "#CCCCCC",
         };
+      case State.deep:
+        return {
+          primary: "#2a408b",
+          secondary: "#1a205b",
+        };
       default:
         return {
           primary: "#ef7777",
@@ -64,11 +70,13 @@ class State {
     }
   }
 
+  static all_list = State.getAll();
+
   /**
    * @param {symbol} state
    */
   static getName(state) {
-    for (const name of State.getAll()) {
+    for (const name of State.all_list) {
       if (State[name] == state) return name;
     }
     return undefined;
@@ -77,13 +85,17 @@ class State {
 Object.freeze(State);
 
 class Constraints {
+  static deep = Object.freeze({
+    states: [State.deep, State.water],
+    weights: [6, 1],
+  });
   static water = Object.freeze({
-    states: [State.water, State.beach],
-    weights: [4, 1],
+    states: [State.deep, State.water, State.beach],
+    weights: [1, 4, 6],
   });
   static beach = Object.freeze({
     states: [State.water, State.beach, State.grass],
-    weights: [2, 1, 2],
+    weights: [2, 1, 3],
   });
   static grass = Object.freeze({
     states: [State.mountain, State.beach, State.grass, State.trees],
@@ -99,7 +111,7 @@ class Constraints {
   });
   static snow = Object.freeze({
     states: [State.snow, State.mountain],
-    weights: [1, 3],
+    weights: [2, 3],
   });
 }
 Object.freeze(Constraints);
@@ -118,7 +130,7 @@ class Square {
    * @param {number} y
    */
   constructor(x, y) {
-    const allStates = State.getAll();
+    const allStates = State.all_list;
     this.states = Array.from({ length: allStates.length }, (_, i) => {
       return State[allStates[i]];
     });
@@ -138,8 +150,7 @@ class Square {
 
       context.fillStyle = colours.secondary;
       const bigX = this.pos.x + ((i + 0.05) % squareCount) / squareCount;
-      const bigY =
-        this.pos.y + (Math.floor(i / squareCount) + 0.05) / squareCount;
+      const bigY = this.pos.y + (Math.floor(i / squareCount) + 0.05) / squareCount;
       context.fillRect(
         ...cam.reposition(bigX, bigY),
         ...cam.rescale(size * 0.9, size * 0.9)
@@ -147,8 +158,7 @@ class Square {
 
       context.fillStyle = colours.primary;
       const smallX = this.pos.x + ((i + 0.15) % squareCount) / squareCount;
-      const smallY =
-        this.pos.y + (Math.floor(i / squareCount) + 0.15) / squareCount;
+      const smallY = this.pos.y + (Math.floor(i / squareCount) + 0.15) / squareCount;
       context.fillRect(
         ...cam.reposition(smallX, smallY),
         ...cam.rescale(size * 0.7, size * 0.7)
@@ -157,18 +167,23 @@ class Square {
 
     context.strokeStyle = "#7a7a20";
     context.lineWidth = cam.scale;
-    context.strokeRect(
-      ...cam.reposition(this.pos.x, this.pos.y),
-      ...cam.rescale(1, 1)
-    );
+    context.strokeRect(...cam.reposition(this.pos.x, this.pos.y), ...cam.rescale(1, 1));
   }
 
-  collapse() {
-    return new CollapedSquare(
-      this.pos.x,
-      this.pos.y,
-      this.states[Math.floor(Math.random() * this.states.length)]
-    );
+  /**
+   * @param {Object<symbol, number>} unfilteredWeights
+   * @returns {CollapedSquare}
+   */
+  collapse(unfilteredWeights) {
+    const filteredWeights = {};
+    for (const state of this.states) {
+      filteredWeights[state] = 1;
+    }
+    for (const [key, value] of symbolEntries(unfilteredWeights)) {
+      if (this.states.includes(key)) filteredWeights[key] += value;
+    }
+
+    return new CollapedSquare(this.pos.x, this.pos.y, weightedRandom(filteredWeights));
   }
 }
 
@@ -190,10 +205,7 @@ class CollapedSquare {
     const colours = State.getColours(this.state);
 
     context.fillStyle = colours.secondary;
-    context.fillRect(
-      ...cam.reposition(this.pos.x, this.pos.y),
-      ...cam.rescale(1, 1)
-    );
+    context.fillRect(...cam.reposition(this.pos.x, this.pos.y), ...cam.rescale(1, 1));
 
     context.fillStyle = colours.primary;
     context.fillRect(
@@ -377,10 +389,7 @@ class Camera {
     const scaled = [];
 
     scaled.push(
-      this.#canvas.width / 2 -
-        this.x * scale -
-        0.5 * scale * this.#grid.width +
-        x * scale
+      this.#canvas.width / 2 - this.x * scale - 0.5 * scale * this.#grid.width + x * scale
     );
     scaled.push(
       this.#canvas.height / 2 -
@@ -401,17 +410,11 @@ class Camera {
     const unscaled = [];
 
     unscaled.push(
-      (x -
-        this.#canvas.width / 2 +
-        this.x * scale +
-        0.5 * scale * this.#grid.width) /
+      (x - this.#canvas.width / 2 + this.x * scale + 0.5 * scale * this.#grid.width) /
         scale
     );
     unscaled.push(
-      (y -
-        this.#canvas.height / 2 +
-        this.y * scale +
-        0.5 * scale * this.#grid.height) /
+      (y - this.#canvas.height / 2 + this.y * scale + 0.5 * scale * this.#grid.height) /
         scale
     );
 
@@ -445,12 +448,14 @@ class WaveFunctionCollapse {
 
   /**
    * @param {NodeListOf} inputs
+   * @param {number} [depth=0]
    */
-  generate(inputs, wait) {
+  async generate(inputs, depth = 0) {
     inputs.forEach((el) => (el.disabled = true));
     this.step();
     if (this.canStep()) {
-      setTimeout(this.generate.bind(this, inputs, wait), wait);
+      if (depth == 0) await sleep(1);
+      this.generate(inputs, (depth + 1) % 5);
     } else {
       inputs.forEach((el) => (el.disabled = false));
     }
@@ -486,11 +491,9 @@ class WaveFunctionCollapse {
       }
     }
 
-    // Collapse random square from set
+    // Collapse random square from set with weights
     const randPos =
-      Array.from(lowestEntropySet)[
-        Math.floor(Math.random() * lowestEntropySet.size)
-      ].pos;
+      Array.from(lowestEntropySet)[Math.floor(Math.random() * lowestEntropySet.size)].pos;
     const weights = this.#grid
       .getNeighbours(randPos.x, randPos.y)
       .filter((sqr) => sqr instanceof CollapedSquare)
@@ -504,9 +507,7 @@ class WaveFunctionCollapse {
         return weightObj;
       })
       .reduce((prev, curr) => {
-        for (const [key, value] of Object.getOwnPropertySymbols(curr).map(
-          (s) => [s, curr[s]]
-        )) {
+        for (const [key, value] of symbolEntries(curr)) {
           if (Object.hasOwn(prev, key)) {
             prev[key] += value;
           } else {
@@ -515,18 +516,14 @@ class WaveFunctionCollapse {
         }
         return prev;
       }, {});
-    console.log(weights);
-    const collapsedSquare = this.#grid
-      .get(randPos.x, randPos.y)
-      .collapse(weights);
+    const collapsedSquare = this.#grid.get(randPos.x, randPos.y).collapse(weights);
     this.#grid.set(randPos.x, randPos.y, collapsedSquare);
 
     // Set filters
-    const filter = new Filter(
-      Constraints[State.getName(collapsedSquare.state)].states
-    );
+    const filter = new Filter(Constraints[State.getName(collapsedSquare.state)].states);
     /** @type {Object<string, Filter[]>} */
     const filterList = new Object();
+
     this.#setFilters(randPos.x + 1, randPos.y, filter, filterList);
     this.#setFilters(randPos.x - 1, randPos.y, filter, filterList);
     this.#setFilters(randPos.x, randPos.y + 1, filter, filterList);
@@ -559,28 +556,27 @@ class WaveFunctionCollapse {
    */
   #setFilters(x, y, filter, filterList, completed = new Array()) {
     if (filter.hasAll) return;
+
     const square = this.#grid.get(x, y);
     if (!(square instanceof Square)) return;
     if (completed.includes(square)) return;
+
     if (new Filter(square.states).equals(filter)) return;
     completed.push(square);
 
-    const stateSet = new Set(square.states);
-    stateSet.forEach((state) => {
-      if (!filter.includes(state)) stateSet.delete(state);
-    });
+    const states = [...square.states];
+    filter.filter(states);
 
     const posString = JSON.stringify(square.pos);
-    if (!Object.hasOwn(filterList, posString))
-      filterList[posString] = new Array();
-    filterList[posString].push(new Filter(Array.from(stateSet)));
+    if (!Object.hasOwn(filterList, posString)) filterList[posString] = new Array();
+    filterList[posString].push(new Filter(states));
 
-    const filterSet = new Set();
-    for (const state of Array.from(stateSet)) {
-      filterSet.add(Constraints[State.getName(state)].states);
+    const filterSet = [];
+    for (const state of states) {
+      const name = State.getName(state);
+      filterSet.push(Constraints[name].states);
     }
-
-    const newFilter = Filter.or_filter(filterSet);
+    const newFilter = Filter.filter_union(filterSet);
 
     this.#setFilters(x + 1, y, newFilter, filterList, [...completed]);
     this.#setFilters(x - 1, y, newFilter, filterList, [...completed]);
@@ -610,36 +606,10 @@ class WaveFunctionCollapse {
 
 class Filter {
   /**
-   * @param {symbol[] | Set<symbol[]>} constraints
+   * @param {symbol[][]} constraints
    */
-  static and_filter(constraints) {
-    if (constraints instanceof Array) return new Filter(constraints);
-    /** @type {Set<symbol>} */
-    const result = new Set();
-    for (const [i, consArr] of Array.from(constraints).entries()) {
-      if (i == 0) {
-        consArr.forEach((constraint) => result.add(constraint));
-        continue;
-      }
-      result.forEach((constraint) => {
-        if (!consArr.includes(constraint)) result.delete(constraint);
-      });
-    }
-    return new Filter(Array.from(result));
-  }
-
-  /**
-   * @param {symbol[] | Set<symbol[]>} constraints
-   */
-  static or_filter(constraints) {
-    if (constraints instanceof Array) return new Filter(constraints);
-    /** @type {Set<symbol>} */
-    const result = new Set();
-
-    for (const consArr of Array.from(constraints)) {
-      consArr.forEach((constraint) => result.add(constraint));
-    }
-    return new Filter(Array.from(result));
+  static filter_union(constraints) {
+    return new Filter([...new Set([].concat(...constraints))]);
   }
 
   /**
@@ -649,7 +619,7 @@ class Filter {
     /** @type {Set<symbol>} */
     const result = new Set();
 
-    for (const [i, filter] of Array.from(filters).entries()) {
+    for (const [i, filter] of filters.entries()) {
       if (i == 0) {
         for (const constraint of filter) {
           result.add(constraint);
@@ -664,9 +634,7 @@ class Filter {
   }
 
   static #allConstraints = Object.freeze(
-    Array.from(
-      Constraints.toString().match(/static [a-zA-Z]+ = Object\.freeze\(.*$/gm)
-    )
+    Array.from(Constraints.toString().match(/static [a-zA-Z]+ = Object\.freeze\(.*$/gm))
   );
 
   #constraints;
@@ -789,7 +757,7 @@ function handleBtnClick(event) {
   switch (event.target.name) {
     case "generate": {
       if (!wfc.canStep()) wfc.reset();
-      wfc.generate(document.querySelectorAll("drag-box [name]"), 3);
+      wfc.generate(document.querySelectorAll("drag-box [name]"), 1);
       break;
     }
     case "step": {
@@ -808,11 +776,7 @@ cnv.addEventListener("wheel", handleScroll);
  * @param {WheelEvent} event
  */
 function handleScroll({ deltaY }) {
-  camera.scale = clamp(
-    camera.scale * 1.2 ** -Math.sign(deltaY),
-    1.2 ** -10,
-    1.2 ** 10
-  );
+  camera.scale = clamp(camera.scale * 1.2 ** -Math.sign(deltaY), 1.2 ** -10, 1.2 ** 10);
 }
 
 cnv.addEventListener("mousedown", handleCnvClick);
@@ -821,14 +785,7 @@ cnv.addEventListener("mousedown", handleCnvClick);
  */
 function handleCnvClick({ button, clientX, clientY }) {
   if (button == 1 || button == 2) {
-    const vals = [
-      cnv.width,
-      cnv.height,
-      camera.x,
-      camera.y,
-      grid.width,
-      grid.height,
-    ];
+    const vals = [cnv.width, cnv.height, camera.x, camera.y, grid.width, grid.height];
     const offset = unposition(
       clientX * window.devicePixelRatio,
       clientY * window.devicePixelRatio,
@@ -880,25 +837,12 @@ function handleCnvClick({ button, clientX, clientY }) {
    * @param {number} gridHeight
    * @param {number} gridWidth
    */
-  function unposition(
-    x,
-    y,
-    cnvWidth,
-    cnvHeight,
-    camX,
-    camY,
-    gridWidth,
-    gridHeight
-  ) {
+  function unposition(x, y, cnvWidth, cnvHeight, camX, camY, gridWidth, gridHeight) {
     const scale = camera.scale * 64;
     const unscaled = [];
 
-    unscaled.push(
-      (x - cnvWidth / 2 + camX * scale + 0.5 * scale * gridWidth) / scale
-    );
-    unscaled.push(
-      (y - cnvHeight / 2 + camY * scale + 0.5 * scale * gridHeight) / scale
-    );
+    unscaled.push((x - cnvWidth / 2 + camX * scale + 0.5 * scale * gridWidth) / scale);
+    unscaled.push((y - cnvHeight / 2 + camY * scale + 0.5 * scale * gridHeight) / scale);
 
     return unscaled;
   }
@@ -916,6 +860,38 @@ cnv.addEventListener("contextmenu", (event) => event.preventDefault());
  */
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * @template T
+ * @param {Object<symbol, T>} obj
+ * @returns {T[]}
+ */
+function symbolValues(obj) {
+  return Object.getOwnPropertySymbols(obj).map((s) => obj[s]);
+}
+
+/**
+ * @template T
+ * @param {Object<symbol, T>} obj
+ * @returns {[symbol, T][]}
+ */
+function symbolEntries(obj) {
+  return Object.getOwnPropertySymbols(obj).map((s) => [s, obj[s]]);
+}
+
+/**
+ * @param {Object<symbol, number>} weights
+ * @returns {symbol}
+ */
+function weightedRandom(weights) {
+  const max = symbolValues(weights).reduce((p, c) => p + c, 0);
+  let rand = Math.random() * max;
+
+  for (const [k, v] of symbolEntries(weights)) {
+    rand -= v;
+    if (rand < 0) return k;
+  }
 }
 
 /**
@@ -940,4 +916,13 @@ function drawBackground(context, frame) {
   }
   context.closePath();
   context.fill();
+}
+
+/**
+ * @param {number} ms
+ */
+function sleep(ms) {
+  return new Promise((r, _) => {
+    setTimeout(r, ms);
+  });
 }
