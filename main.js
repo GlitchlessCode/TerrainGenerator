@@ -87,31 +87,31 @@ Object.freeze(State);
 class Constraints {
   static deep = Object.freeze({
     states: [State.deep, State.water],
-    weights: [6, 1],
+    weights: [3, 1],
   });
   static water = Object.freeze({
     states: [State.deep, State.water, State.beach],
-    weights: [1, 4, 6],
+    weights: [1, 3, 6],
   });
   static beach = Object.freeze({
     states: [State.water, State.beach, State.grass],
-    weights: [2, 1, 3],
+    weights: [6, 1, 3],
   });
   static grass = Object.freeze({
     states: [State.mountain, State.beach, State.grass, State.trees],
-    weights: [1, 1, 3, 2],
+    weights: [1, 1, 3, 1],
   });
   static trees = Object.freeze({
     states: [State.mountain, State.grass, State.trees],
-    weights: [1, 1, 2],
+    weights: [1, 1, 3],
   });
   static mountain = Object.freeze({
     states: [State.snow, State.trees, State.grass, State.mountain],
-    weights: [2, 2, 1, 2],
+    weights: [3, 3, 1, 3],
   });
   static snow = Object.freeze({
     states: [State.snow, State.mountain],
-    weights: [2, 3],
+    weights: [1, 3],
   });
 }
 Object.freeze(Constraints);
@@ -138,36 +138,35 @@ class Square {
   }
 
   /**
-   * @param {CanvasRenderingContext2D} context
    * @param {Camera} cam
+   * @param {{primary:Object<string, {x, y, w, h}[]>, secondary:Object<string, {x, y, w, h}[]>}} drawList
    */
-  draw(context, cam) {
+  draw(cam, drawList) {
     const squareCount = Math.ceil(Math.sqrt(this.entropy));
 
     const size = 1 / squareCount;
     for (let i = 0; i < this.states.length; i++) {
       const colours = State.getColours(this.states[i]);
 
-      context.fillStyle = colours.secondary;
       const bigX = this.pos.x + ((i + 0.05) % squareCount) / squareCount;
-      const bigY = this.pos.y + (Math.floor(i / squareCount) + 0.05) / squareCount;
-      context.fillRect(
-        ...cam.reposition(bigX, bigY),
-        ...cam.rescale(size * 0.9, size * 0.9)
-      );
+      const bigY =
+        this.pos.y + (Math.floor(i / squareCount) + 0.05) / squareCount;
+      const [sx, sy] = cam.reposition(bigX, bigY);
+      const [sw, sh] = cam.rescale(size * 0.9, size * 0.9);
+      drawList.secondary[colours.secondary].push({
+        x: sx,
+        y: sy,
+        w: sw,
+        h: sh,
+      });
 
-      context.fillStyle = colours.primary;
       const smallX = this.pos.x + ((i + 0.15) % squareCount) / squareCount;
-      const smallY = this.pos.y + (Math.floor(i / squareCount) + 0.15) / squareCount;
-      context.fillRect(
-        ...cam.reposition(smallX, smallY),
-        ...cam.rescale(size * 0.7, size * 0.7)
-      );
+      const smallY =
+        this.pos.y + (Math.floor(i / squareCount) + 0.15) / squareCount;
+      const [px, py] = cam.reposition(smallX, smallY);
+      const [pw, ph] = cam.rescale(size * 0.7, size * 0.7);
+      drawList.primary[colours.primary].push({ x: px, y: py, w: pw, h: ph });
     }
-
-    context.strokeStyle = "#7a7a20";
-    context.lineWidth = cam.scale;
-    context.strokeRect(...cam.reposition(this.pos.x, this.pos.y), ...cam.rescale(1, 1));
   }
 
   /**
@@ -183,7 +182,11 @@ class Square {
       if (this.states.includes(key)) filteredWeights[key] += value;
     }
 
-    return new CollapedSquare(this.pos.x, this.pos.y, weightedRandom(filteredWeights));
+    return new CollapedSquare(
+      this.pos.x,
+      this.pos.y,
+      weightedRandom(filteredWeights)
+    );
   }
 }
 
@@ -201,17 +204,24 @@ class CollapedSquare {
     this.state = state;
     this.pos = { x, y };
   }
-  draw(context, cam) {
+  draw(cam, drawList) {
     const colours = State.getColours(this.state);
 
-    context.fillStyle = colours.secondary;
-    context.fillRect(...cam.reposition(this.pos.x, this.pos.y), ...cam.rescale(1, 1));
+    const [sx, sy] = cam.reposition(this.pos.x, this.pos.y);
+    const [sw, sh] = cam.rescale(1, 1);
+    drawList.secondary[colours.secondary].push({
+      x: sx,
+      y: sy,
+      w: sw,
+      h: sh,
+    });
 
-    context.fillStyle = colours.primary;
-    context.fillRect(
-      ...cam.reposition(this.pos.x + 0.1111111111, this.pos.y + 0.1111111111),
-      ...cam.rescale(0.7777777778, 0.7777777778)
+    const [px, py] = cam.reposition(
+      this.pos.x + 0.1111111111,
+      this.pos.y + 0.1111111111
     );
+    const [pw, ph] = cam.rescale(0.7777777778, 0.7777777778);
+    drawList.primary[colours.primary].push({ x: px, y: py, w: pw, h: ph });
   }
 }
 
@@ -288,8 +298,34 @@ class Grid {
     context.stroke();
 
     for (const line of this.grid) {
+      /** @type {{primary:Object<string, {x, y, w, h}[]>, secondary:Object<string, {x, y, w, h}[]>}} */
+      const drawList = {
+        primary: {},
+        secondary: {},
+      };
+      for (const state of State.all_list) {
+        const colours = State.getColours(State[state]);
+        drawList.primary[colours.primary] = [];
+        drawList.secondary[colours.secondary] = [];
+      }
       for (const sqr of line) {
-        sqr.draw(context, cam);
+        sqr.draw(cam, drawList);
+      }
+      for (const [colour, arr] of Object.entries(drawList.secondary)) {
+        context.fillStyle = colour;
+        context.beginPath();
+        for (const { x, y, w, h } of arr) {
+          context.rect(x, y, w, h);
+        }
+        context.fill();
+      }
+      for (const [colour, arr] of Object.entries(drawList.primary)) {
+        context.fillStyle = colour;
+        context.beginPath();
+        for (const { x, y, w, h } of arr) {
+          context.rect(x, y, w, h);
+        }
+        context.fill();
       }
     }
   }
@@ -389,7 +425,10 @@ class Camera {
     const scaled = [];
 
     scaled.push(
-      this.#canvas.width / 2 - this.x * scale - 0.5 * scale * this.#grid.width + x * scale
+      this.#canvas.width / 2 -
+        this.x * scale -
+        0.5 * scale * this.#grid.width +
+        x * scale
     );
     scaled.push(
       this.#canvas.height / 2 -
@@ -410,11 +449,17 @@ class Camera {
     const unscaled = [];
 
     unscaled.push(
-      (x - this.#canvas.width / 2 + this.x * scale + 0.5 * scale * this.#grid.width) /
+      (x -
+        this.#canvas.width / 2 +
+        this.x * scale +
+        0.5 * scale * this.#grid.width) /
         scale
     );
     unscaled.push(
-      (y - this.#canvas.height / 2 + this.y * scale + 0.5 * scale * this.#grid.height) /
+      (y -
+        this.#canvas.height / 2 +
+        this.y * scale +
+        0.5 * scale * this.#grid.height) /
         scale
     );
 
@@ -444,6 +489,7 @@ class WaveFunctionCollapse {
    */
   constructor(grid) {
     this.#grid = grid;
+    this.reset();
   }
 
   /**
@@ -455,16 +501,13 @@ class WaveFunctionCollapse {
     this.step();
     if (this.canStep()) {
       if (depth == 0) await sleep(1);
-      this.generate(inputs, (depth + 1) % 5);
+      this.generate(inputs, (depth + 1) % 50);
     } else {
       inputs.forEach((el) => (el.disabled = false));
     }
   }
 
-  step() {
-    // Check if valid
-    if (!this.canStep()) return;
-
+  findLowestEntropy() {
     // Find set of lowest entropy
     /** @type {Set<Square>} */
     const lowestEntropySet = new Set();
@@ -490,10 +533,20 @@ class WaveFunctionCollapse {
         }
       }
     }
+    return lowestEntropySet;
+  }
+
+  step() {
+    // Check if valid
+    if (!this.canStep()) return;
+
+    const lowestEntropySet = this.findLowestEntropy();
 
     // Collapse random square from set with weights
     const randPos =
-      Array.from(lowestEntropySet)[Math.floor(Math.random() * lowestEntropySet.size)].pos;
+      Array.from(lowestEntropySet)[
+        Math.floor(Math.random() * lowestEntropySet.size)
+      ].pos;
     const weights = this.#grid
       .getNeighbours(randPos.x, randPos.y)
       .filter((sqr) => sqr instanceof CollapedSquare)
@@ -516,11 +569,15 @@ class WaveFunctionCollapse {
         }
         return prev;
       }, {});
-    const collapsedSquare = this.#grid.get(randPos.x, randPos.y).collapse(weights);
+    const collapsedSquare = this.#grid
+      .get(randPos.x, randPos.y)
+      .collapse(weights);
     this.#grid.set(randPos.x, randPos.y, collapsedSquare);
 
     // Set filters
-    const filter = new Filter(Constraints[State.getName(collapsedSquare.state)].states);
+    const filter = new Filter(
+      Constraints[State.getName(collapsedSquare.state)].states
+    );
     /** @type {Object<string, Filter[]>} */
     const filterList = new Object();
 
@@ -568,7 +625,8 @@ class WaveFunctionCollapse {
     filter.filter(states);
 
     const posString = JSON.stringify(square.pos);
-    if (!Object.hasOwn(filterList, posString)) filterList[posString] = new Array();
+    if (!Object.hasOwn(filterList, posString))
+      filterList[posString] = new Array();
     filterList[posString].push(new Filter(states));
 
     const filterSet = [];
@@ -601,6 +659,35 @@ class WaveFunctionCollapse {
     this.#grid.grid = Array.from({ length: this.#grid.width }, (_, x) =>
       Array.from({ length: this.#grid.height }, (_, y) => new Square(x, y))
     );
+
+    const lowestEntropySet = this.findLowestEntropy();
+    const randPos =
+      Array.from(lowestEntropySet)[
+        Math.floor(Math.random() * lowestEntropySet.size)
+      ].pos;
+
+    const collapsedSquare = new CollapedSquare(
+      randPos.x,
+      randPos.y,
+      State.trees
+    );
+
+    this.#grid.set(randPos.x, randPos.y, collapsedSquare);
+
+    // Set filters
+    const filter = new Filter(
+      Constraints[State.getName(collapsedSquare.state)].states
+    );
+    /** @type {Object<string, Filter[]>} */
+    const filterList = new Object();
+
+    this.#setFilters(randPos.x + 1, randPos.y, filter, filterList);
+    this.#setFilters(randPos.x - 1, randPos.y, filter, filterList);
+    this.#setFilters(randPos.x, randPos.y + 1, filter, filterList);
+    this.#setFilters(randPos.x, randPos.y - 1, filter, filterList);
+
+    // Propagate filters across all cells
+    this.#propagateFilter(filterList);
   }
 }
 
@@ -634,7 +721,9 @@ class Filter {
   }
 
   static #allConstraints = Object.freeze(
-    Array.from(Constraints.toString().match(/static [a-zA-Z]+ = Object\.freeze\(.*$/gm))
+    Array.from(
+      Constraints.toString().match(/static [a-zA-Z]+ = Object\.freeze\(.*$/gm)
+    )
   );
 
   #constraints;
@@ -717,7 +806,15 @@ class StateBitmask {
 
 class DrawnStateCache {
   #canvas;
-  constructor(maxSize) {
+
+  test = [];
+
+  /**
+   *
+   * @param {number} maxSize
+   * @param {symbol[]} stateList
+   */
+  constructor(maxSize, stateList) {
     this.#canvas = new OffscreenCanvas(maxSize, maxSize);
   }
 }
@@ -734,7 +831,7 @@ const grid = new Grid(10, 10);
 const camera = new Camera(cnv, grid);
 const wfc = new WaveFunctionCollapse(grid);
 const bitmask = new StateBitmask(State.all_list.map((s) => State[s]));
-const cache = new DrawnStateCache(396.271131);
+const cache = new DrawnStateCache(Math.ceil(1.2 ** 10 * 64));
 
 function draw(frame) {
   ctx.clearRect(0, 0, cnv.width, cnv.height);
@@ -808,7 +905,11 @@ cnv.addEventListener("wheel", handleScroll);
  * @param {WheelEvent} event
  */
 function handleScroll({ deltaY }) {
-  camera.scale = clamp(camera.scale * 1.2 ** -Math.sign(deltaY), 1.2 ** -10, 1.2 ** 10);
+  camera.scale = clamp(
+    camera.scale * 1.2 ** -Math.sign(deltaY),
+    1.2 ** -20,
+    1.2 ** 10
+  );
 }
 
 cnv.addEventListener("mousedown", handleCnvClick);
@@ -817,7 +918,14 @@ cnv.addEventListener("mousedown", handleCnvClick);
  */
 function handleCnvClick({ button, clientX, clientY }) {
   if (button == 1 || button == 2) {
-    const vals = [cnv.width, cnv.height, camera.x, camera.y, grid.width, grid.height];
+    const vals = [
+      cnv.width,
+      cnv.height,
+      camera.x,
+      camera.y,
+      grid.width,
+      grid.height,
+    ];
     const offset = unposition(
       clientX * window.devicePixelRatio,
       clientY * window.devicePixelRatio,
@@ -869,12 +977,25 @@ function handleCnvClick({ button, clientX, clientY }) {
    * @param {number} gridHeight
    * @param {number} gridWidth
    */
-  function unposition(x, y, cnvWidth, cnvHeight, camX, camY, gridWidth, gridHeight) {
+  function unposition(
+    x,
+    y,
+    cnvWidth,
+    cnvHeight,
+    camX,
+    camY,
+    gridWidth,
+    gridHeight
+  ) {
     const scale = camera.scale * 64;
     const unscaled = [];
 
-    unscaled.push((x - cnvWidth / 2 + camX * scale + 0.5 * scale * gridWidth) / scale);
-    unscaled.push((y - cnvHeight / 2 + camY * scale + 0.5 * scale * gridHeight) / scale);
+    unscaled.push(
+      (x - cnvWidth / 2 + camX * scale + 0.5 * scale * gridWidth) / scale
+    );
+    unscaled.push(
+      (y - cnvHeight / 2 + camY * scale + 0.5 * scale * gridHeight) / scale
+    );
 
     return unscaled;
   }
