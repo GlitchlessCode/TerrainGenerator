@@ -692,6 +692,36 @@ class Filter {
   }
 }
 
+class StateBitmask {
+  #bitmask;
+
+  /**
+   * @param {symbol[]} stateList
+   */
+  constructor(stateList) {
+    this.#bitmask = {};
+    for (let i = 0; i < stateList.length; i++) {
+      this.#bitmask[stateList[i]] = 2 ** i;
+    }
+  }
+
+  /**
+   * @param {symbol[]} stateList
+   */
+  find(stateList) {
+    return stateList.reduce((prev, curr) => {
+      return prev + this.#bitmask[curr];
+    }, 0);
+  }
+}
+
+class DrawnStateCache {
+  #canvas;
+  constructor(maxSize) {
+    this.#canvas = new OffscreenCanvas(maxSize, maxSize);
+  }
+}
+
 // * SETUP AND RUN
 
 /** @type {HTMLCanvasElement} */
@@ -703,6 +733,8 @@ setCanvasScale();
 const grid = new Grid(10, 10);
 const camera = new Camera(cnv, grid);
 const wfc = new WaveFunctionCollapse(grid);
+const bitmask = new StateBitmask(State.all_list.map((s) => State[s]));
+const cache = new DrawnStateCache(396.271131);
 
 function draw(frame) {
   ctx.clearRect(0, 0, cnv.width, cnv.height);
